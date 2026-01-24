@@ -19,11 +19,12 @@ def _raise_on_error(response) -> None:
 
 
 async def add_expense(user_id: int, amount: int, category: str) -> None:
+    created_at = datetime.now(timezone.utc).replace(tzinfo=None)
     payload = {
         "user_id": user_id,
         "amount": amount,
         "category": category,
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": created_at.isoformat(),
     }
 
     def _insert():
@@ -36,8 +37,8 @@ async def add_expense(user_id: int, amount: int, category: str) -> None:
 async def get_weekly_summary(
     user_id: int, start: datetime, end: datetime
 ) -> Tuple[Dict[str, int], int]:
-    start_utc = start.astimezone(timezone.utc).isoformat()
-    end_utc = end.astimezone(timezone.utc).isoformat()
+    start_utc = start.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
+    end_utc = end.astimezone(timezone.utc).replace(tzinfo=None).isoformat()
 
     def _fetch():
         return (
