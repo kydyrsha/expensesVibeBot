@@ -7,3 +7,6 @@ create table if not exists expenses (
     category text not null,
     created_at timestamp not null
 );
+
+-- Политик нет: таблица закрыта для anon-ключа, бот ходит с service_role.
+alter table expenses enable row level security;
