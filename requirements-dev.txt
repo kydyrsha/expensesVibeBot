@@ -1,2 +1,7 @@
--r requirements.txt
+# Локальная разработка. Рантайм-зависимости — источник истины в pyproject.toml,
+# Vercel ставит их оттуда; здесь они продублированы для обычного venv.
+aiogram>=3,<4
+APScheduler>=3.10,<4
+supabase>=2,<3
+fastapi>=0.117
 pytest>=8,<9

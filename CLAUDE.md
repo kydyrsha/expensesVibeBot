@@ -5,14 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt httpx
 .venv/bin/python -m pytest -q          # all tests
 .venv/bin/python -m pytest tests/test_periods.py::test_previous_month_range_crosses_year -v
 python bot.py                          # local run via long polling (see "Two run modes")
 vercel crons run /api/cron             # fire the monthly report by hand, production only
 ```
 
-`requirements.txt` holds runtime deps and is what Vercel installs; `requirements-dev.txt` adds pytest. No linter or CI is configured. Tests cover `periods.py` only — see "Testing posture" below.
+`httpx` is only needed if you drive the routes through `fastapi.testclient`. No linter or CI is configured. Tests cover `periods.py` only — see "Testing posture" below.
 
 Required environment variables (validated at import time in `config.py`, missing ones raise on startup): `BOT_TOKEN`, `SUPABASE_URL`, `SUPABASE_KEY` (Supabase **service_role** key — the table has RLS enabled with no policies, so the anon key cannot read or write). Optional: `OWNER_TELEGRAM_ID` (the monthly report is skipped without it), `TIMEZONE` (IANA name; defaults to the host's local tz, which on a serverless host means UTC).
 
@@ -30,19 +30,22 @@ aiogram 3 bot, no ORM and no framework beyond aiogram/APScheduler/supabase-py.
 
 The two modes are mutually exclusive at runtime: Telegram refuses `getUpdates` while a webhook is registered. To run locally, delete the webhook first (`deleteWebhook`), and re-register it afterwards.
 
-- `api/telegram.py` — webhook entrypoint. Verifies `WEBHOOK_SECRET`, builds a per-request `Bot`, feeds one `Update` to the dispatcher. Always answers 200 after the attempt, even on failure, because Telegram redelivers non-200 updates forever.
-- `api/cron.py` — monthly report endpoint. Verifies `CRON_SECRET`, then the same summary + send as local `scheduler.py`.
-- `vercel.json` — `includeFiles` (root modules are not bundled into `api/` automatically) and the cron schedule.
+- `app.py` — the ASGI entrypoint, a FastAPI app with both routes. `POST /api/telegram` verifies `WEBHOOK_SECRET` and feeds one `Update` to the dispatcher; `GET /api/cron` verifies `CRON_SECRET` and sends the report. Each request builds and closes its own `Bot` — there is no long-lived session on serverless.
+- `pyproject.toml` — runtime dependencies **and** `[tool.vercel] entrypoint = "app:app"`. Vercel's Python runtime builds one ASGI app; the older "one file per function in `api/`" layout is not what this project uses, and adding `api/*.py` handler classes will break the build with "No python entrypoint found".
+- `vercel.json` — cron schedule only.
+- `reports.py` — `send_monthly_report(bot)`, shared by `app.py` and `scheduler.py` so the report exists in one place.
 - `bot.py` — local entrypoint: `Bot`/`Dispatcher`, router, APScheduler, `start_polling`.
+- `scheduler.py` — local-only: APScheduler `CronTrigger(day=1, hour=9)` in `TZINFO`, calling the same `send_monthly_report`.
 - `config.py` — env parsing only, with deliberate import-time side effects (see above).
 - `handlers.py` — all Telegram handlers, the `CATEGORIES` list, and `format_report`.
 - `periods.py` — calendar-month window math. Pure functions, the only tested module.
 - `db.py` — the only Supabase access point. Module-level `create_client`; every query is a sync supabase-py call wrapped in `asyncio.to_thread` so the event loop is never blocked.
-- `scheduler.py` — local-only counterpart of `api/cron.py`: APScheduler `CronTrigger(day=1, hour=9)` in `TZINFO`.
+
+**The webhook always answers 200**, even when the update raises — Telegram redelivers non-200 updates indefinitely, so a persistent bug would turn into an infinite loop. Failures are logged instead.
 
 **Vercel Cron runs on UTC and ignores `TIMEZONE`.** The schedule in `vercel.json` is `0 4 1 * *` = 09:00 at UTC+5. `TIMEZONE` still matters inside the function, because it decides which calendar month `previous_month_range` picks. Changing the owner's timezone means editing both.
 
-Because `api/*.py` live in a subdirectory, each prepends the repo root to `sys.path` before importing project modules. Keep that block first in any new function file.
+Dependencies live in `pyproject.toml`; `requirements-dev.txt` mirrors them plus pytest for a plain local venv. Keep the two in sync when adding a runtime dependency.
 
 ### Conventions that matter
 
