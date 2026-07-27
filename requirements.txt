@@ -1,3 +1,4 @@
-aiogram
-APScheduler
-supabase
+aiogram>=3,<4
+APScheduler>=3.10,<4
+supabase>=2,<3
+pytest>=8,<9
