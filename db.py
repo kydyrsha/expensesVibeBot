@@ -34,7 +34,7 @@ async def add_expense(user_id: int, amount: int, category: str) -> None:
     _raise_on_error(response)
 
 
-async def get_weekly_summary(
+async def get_summary(
     user_id: int, start: datetime, end: datetime
 ) -> Tuple[Dict[str, int], int]:
     start_utc = start.astimezone(timezone.utc).replace(tzinfo=None).isoformat()

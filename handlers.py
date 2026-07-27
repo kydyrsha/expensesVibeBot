@@ -7,19 +7,25 @@ from aiogram.filters import Command
 from aiogram.types import CallbackQuery, Message
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from db import add_expense, get_weekly_summary
+from db import add_expense, get_summary
 
 
 router = Router()
 
 AMOUNT_RE = re.compile(r"^\d+$")
 
+# Продукты — магазины у дома и супермаркеты; Питание — еда вне дома.
+# Покупки — всё офлайн, Маркетплейсы — то же самое онлайн (Ozon, WB, Temu).
 CATEGORIES = [
-    ("food", "🍔 Food"),
-    ("transport", "🚕 Transport"),
-    ("home", "🏠 Home"),
-    ("entertainment", "🎮 Entertainment"),
-    ("shopping", "🛒 Shopping"),
+    ("food", "🛒 Продукты"),
+    ("meals", "🍔 Питание"),
+    ("transport", "🚕 Транспорт"),
+    ("home", "🏠 Жильё"),
+    ("health", "💊 Здоровье"),
+    ("shopping", "👕 Покупки"),
+    ("marketplace", "🛍 Маркетплейсы"),
+    ("fun", "🎮 Развлечения"),
+    ("other", "📦 Прочее"),
 ]
 CATEGORY_LABELS = {code: label for code, label in CATEGORIES}
 
@@ -63,7 +69,7 @@ async def week(message: Message) -> None:
     start = end - timedelta(days=7)
 
     try:
-        summary, total = await get_weekly_summary(user_id, start, end)
+        summary, total = await get_summary(user_id, start, end)
     except Exception:
         await message.answer("Failed to load weekly summary.")
         return

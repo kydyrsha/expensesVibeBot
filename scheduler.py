@@ -4,7 +4,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
 from config import OWNER_TELEGRAM_ID, TZINFO
-from db import get_weekly_summary
+from db import get_summary
 from handlers import format_weekly_report
 
 
@@ -14,7 +14,7 @@ async def _send_weekly_report(bot) -> None:
 
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=7)
-    summary, total = await get_weekly_summary(OWNER_TELEGRAM_ID, start, end)
+    summary, total = await get_summary(OWNER_TELEGRAM_ID, start, end)
     text = format_weekly_report(summary, total)
     await bot.send_message(OWNER_TELEGRAM_ID, text)
 
