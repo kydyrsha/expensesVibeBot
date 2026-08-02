@@ -27,6 +27,7 @@ CATEGORIES = [
     ("health", "💊 Здоровье"),
     ("shopping", "👕 Покупки"),
     ("marketplace", "🛍 Маркетплейсы"),
+    ("subscriptions", "💻 Подписки"),
     ("fun", "🎮 Развлечения"),
     ("other", "📦 Прочее"),
 ]
