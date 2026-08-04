@@ -26,7 +26,7 @@ The `expenses` table must be created manually in Supabase from `schema.sql` — 
 
 aiogram 3 bot, no ORM and no framework beyond aiogram/APScheduler/supabase-py.
 
-**Two run modes share one set of handlers.** Production is serverless on Vercel: `api/telegram.py` receives a webhook and `api/cron.py` is hit by Vercel Cron. Local development uses `bot.py` (long polling + in-process APScheduler). Both import the same `router` and `format_report`, so business logic must never live in an entrypoint — put it in `handlers.py`, `db.py`, or `periods.py` or it will exist in only one mode.
+**Two run modes share one set of handlers.** Production is serverless on Vercel: `app.py` serves both `POST /api/telegram` (webhook) and `GET /api/cron` (hit by Vercel Cron). Local development uses `bot.py` (long polling + in-process APScheduler). Both import the same `router` and `format_report`, so business logic must never live in an entrypoint — put it in `handlers.py`, `db.py`, or `periods.py` or it will exist in only one mode.
 
 The two modes are mutually exclusive at runtime: Telegram refuses `getUpdates` while a webhook is registered. To run locally, delete the webhook first (`deleteWebhook`), and re-register it afterwards.
 
@@ -49,7 +49,7 @@ Dependencies live in `pyproject.toml`; `requirements-dev.txt` mirrors them plus 
 
 ### Conventions that matter
 
-**The bot is stateless by design.** A bare integer message renders a keyboard whose `callback_data` carries the amount (`cat:food:500`); the callback parses it with `CALLBACK_RE` and writes the row. Nothing is held between updates, so a redeploy mid-flow loses nothing. Do not reintroduce a module-level dict or FSM storage — that was removed deliberately, because a restart between "typed the amount" and "tapped the category" silently dropped the expense. Budget: `callback_data` is capped at 64 bytes; the longest current value is 19.
+**The bot is stateless by design.** A bare integer message renders a keyboard whose `callback_data` carries the amount (`cat:food:500`); the callback parses it with `CALLBACK_RE` and writes the row. Nothing is held between updates, so a redeploy mid-flow loses nothing. Do not reintroduce a module-level dict or FSM storage — that was removed deliberately, because a restart between "typed the amount" and "tapped the category" silently dropped the expense. Budget: `callback_data` is capped at 64 bytes; the longest current value is 21 (`cat:subscriptions:500`).
 
 Double-submission is prevented by `edit_text` replacing the message (and its buttons) after a successful write — not by consuming state.
 
@@ -61,7 +61,9 @@ Double-submission is prevented by `edit_text` replacing the message (and its but
 
 **Non-numeric text is ignored silently.** `@router.message(F.text)` returns early when the text doesn't match `^\d+$`; it is the catch-all handler, so any new text command must be registered before it via a more specific filter.
 
-**Error handling is user-facing only.** Handlers catch broad `Exception` around DB calls and reply with a short message; nothing is logged beyond aiogram's own INFO logging. `_send_monthly_report` deliberately does *not* catch — a failure there should surface in the host's logs rather than vanish.
+**Error handling is user-facing only.** Handlers catch broad `Exception` around DB calls and reply with a short message; nothing is logged beyond aiogram's own INFO logging. `send_monthly_report` deliberately does *not* catch — a failure there should surface in Vercel's logs rather than vanish.
+
+**Deleting or renaming a category silently breaks old rows.** Because rows store the label, a label no longer present in `CATEGORIES` stops appearing as a report line while still counting toward the total, so the lines no longer sum to it. Reassign such rows in SQL before dropping a category — see the README for the query.
 
 ### Testing posture
 

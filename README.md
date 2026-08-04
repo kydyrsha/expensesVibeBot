@@ -1,50 +1,100 @@
-# Telegram Expense Bot (Personal)
+# Telegram-бот учёта расходов
 
-Simple personal expense-tracking bot built with aiogram and Supabase.
+Личный бот: присылаешь сумму, выбираешь категорию кнопкой, первого числа месяца получаешь отчёт за прошлый месяц.
 
-## Features
-- Add an expense by sending a number
-- Select a category via inline buttons
-- `/week` shows a weekly summary by category
-- Automatic weekly report on Sundays at 20:00 (local time)
+## Как пользоваться
 
-## Requirements
-- Python 3.11
-- Supabase project (PostgreSQL)
+| Действие | Что происходит |
+|---|---|
+| отправить число (`500`) | приходит клавиатура категорий |
+| нажать категорию | трата записана, сообщение заменяется на подтверждение |
+| `/month` | траты за текущий месяц с разбивкой по категориям |
+| `/start` | краткая справка |
+| 1-го числа в 09:00 | отчёт за прошлый календарный месяц приходит сам |
 
-## Setup
+Текст без цифр бот молча игнорирует. Суммы — только целые. Категории заданы в `CATEGORIES` в [handlers.py](handlers.py); там же в комментарии зафиксированы границы между спорными парами.
 
-1) Create the `expenses` table in Supabase:
+Данные разделены по `user_id`: если ботом пользуется кто-то ещё, он ведёт свой учёт и чужих трат не видит. Автоотчёт уходит только владельцу (`OWNER_TELEGRAM_ID`).
+
+## Где это работает
+
+Продакшн — serverless на Vercel: Telegram шлёт webhook в `POST /api/telegram`, Vercel Cron дёргает `GET /api/cron` первого числа. Данные в Supabase (PostgreSQL). Постоянно живущего процесса нет, поэтому бот ничего не хранит в памяти между сообщениями.
+
+Локально тот же бот запускается через long polling — `python bot.py`, расписание при этом ведёт APScheduler.
+
+Подробности архитектуры и неочевидные соглашения — в [CLAUDE.md](CLAUDE.md).
+
+## Первичная настройка
+
+**1. Таблица в Supabase.** Выполнить [schema.sql](schema.sql) в SQL Editor. Миграций нет, таблица создаётся руками.
+
+**2. Переменные окружения** в настройках проекта Vercel, все с областью Production:
+
+| Переменная | Что это |
+|---|---|
+| `BOT_TOKEN` | токен от [@BotFather](https://t.me/BotFather) |
+| `SUPABASE_URL` | `https://<project-ref>.supabase.co` |
+| `SUPABASE_KEY` | ключ **service_role** — RLS включена без политик, anon не пройдёт |
+| `OWNER_TELEGRAM_ID` | числовой id получателя отчёта |
+| `TIMEZONE` | IANA-имя, например `Asia/Almaty` |
+| `WEBHOOK_SECRET` | `openssl rand -hex 32` |
+| `CRON_SECRET` | `openssl rand -hex 32` |
+
+Без `WEBHOOK_SECRET` и `CRON_SECRET` эндпоинты отвечают 401 всем подряд — защита fail closed. После изменения любой переменной нужен новый деплой.
+
+**3. Привязать webhook** — один раз после деплоя:
+
+```bash
+TOKEN='токен_бота'
+SECRET='значение_WEBHOOK_SECRET'
+curl -X POST "https://api.telegram.org/bot${TOKEN}/setWebhook" \
+  -d "url=https://<проект>.vercel.app/api/telegram" \
+  -d "secret_token=${SECRET}"
+```
+
+URL обязательно стабильный домен проекта, а не адрес конкретного деплоя вида `<проект>-<хэш>-<аккаунт>.vercel.app`: такие закрыты защитой Vercel и меняются при каждом деплое.
+
+## Локальная разработка
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install -r requirements-dev.txt
+.venv/bin/python -m pytest -q
+```
+
+Рантайм-зависимости объявлены в [pyproject.toml](pyproject.toml) — оттуда их ставит Vercel; `requirements-dev.txt` повторяет их плюс pytest для обычного venv.
+
+Long polling и webhook взаимоисключающи: Telegram не отдаёт `getUpdates`, пока висит webhook. Перед `python bot.py` нужно вызвать `deleteWebhook`, после — привязать заново.
+
+## Диагностика
+
+Что видит Telegram — первое, что стоит проверить, если бот молчит:
+
+```bash
+curl "https://api.telegram.org/bot${TOKEN}/getWebhookInfo"
+```
+
+Поле `last_error_message` называет причину прямо: `401 Unauthorized` — значение `WEBHOOK_SECRET` в Vercel не совпадает с переданным в `setWebhook`. Ненулевой `pending_update_count` означает, что доставка падает и сообщения копятся в очереди.
+
+Месячный отчёт можно вызвать вручную, не дожидаясь первого числа:
+
+```bash
+curl -H "Authorization: Bearer ${CRON_SECRET}" https://<проект>.vercel.app/api/cron
+```
+
+Логи функции — в дашборде Vercel, раздел Observability.
+
+## Что стоит знать
+
+**Категория хранится текстом — тем самым лейблом, что на кнопке.** Поэтому переименование категории оставляет старые записи под прежним именем, а удаление делает их невидимыми в отчёте: строки перестают выводиться, но продолжают попадать в «Итого». Осиротевшие записи ищутся так:
 
 ```sql
--- see schema.sql
+select category, count(*), sum(amount) from expenses group by category order by 3 desc;
 ```
 
-2) Set environment variables:
+и переносятся обычным `update expenses set category = '📦 Прочее' where category = '...'`.
 
-```bash
-export BOT_TOKEN="your_telegram_bot_token"
-export SUPABASE_URL="https://your-project.supabase.co"
-export SUPABASE_KEY="your_supabase_key"
-export OWNER_TELEGRAM_ID="your_telegram_user_id"
-# Optional:
-export TIMEZONE="Europe/Berlin"
-```
+**Supabase на бесплатном тарифе усыпляет проект после недели без активности.** Симптом — бот отвечает «Не удалось сохранить трату». Лечится кнопкой Restore в дашборде, данные при этом целы.
 
-3) Install dependencies:
+## Осознанно не реализовано
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-4) Run the bot:
-
-```bash
-python bot.py
-```
-
-## Notes
-- Amounts are stored as integers.
-- The weekly report uses the last 7 days of data.
+Ввод одним сообщением (`500 кофе`), описания трат, дробные суммы, редактирование и удаление записей, управление категориями из бота, мультивалютность. Ограничения зафиксированы в [TECH_SPEC.md](TECH_SPEC.md) и в разговоре с владельцем; менять их — отдельное решение, а не побочный эффект правки.

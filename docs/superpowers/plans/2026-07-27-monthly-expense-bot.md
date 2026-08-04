@@ -1,5 +1,11 @@
 # Месячный отчёт и деплой бота — план реализации
 
+> **Исторический документ, выполнен 2026-07-27.** Задачи 1–5 (код) сделаны как
+> описано. Задачи 6–7 (деплой на Railway) неактуальны: у Railway закончился
+> бесплатный триал, и продакшн уехал на Vercel — webhook вместо long polling,
+> Vercel Cron вместо APScheduler. Актуальное состояние — в `README.md` и
+> `CLAUDE.md`, этот файл сохранён ради истории решений.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Перевести бота с недельного отчёта на месячный, сделать его устойчивым к перезапускам и поднять на Railway так, чтобы отчёт приходил первого числа сам.
